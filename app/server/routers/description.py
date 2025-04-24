@@ -27,6 +27,7 @@ import os
 import time
 from fastapi import APIRouter, Depends, Query, Request, HTTPException
 from typing import Optional
+from transformers import AutoModelForCausalLM, AutoProcessor
 
 # Import required functions/classes from openai_agent and auth
 from ..openai.openai_agent import GPTAgent
@@ -141,12 +142,13 @@ class BaseMLLM:
             print("please select a model")
             return None
             
-        def sara2_woi(self, lat, lng, floor, rotation, max_distance, max_count, sentence_length, tags, lang):
+        def sara2_woi(self, lat, lng, floor, rotation, max_distance, max_count, sentence_length, lang):
+            st = time.time()        
             self.model_path = "/mnt/arata/models/sarashina2-vision-8b"
             self.processor = AutoProcessor.from_pretrained(self.model_path, trust_remote_code=True, local_files_only=True)
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_path,
-                device_map="cuda",
+                device_map="auto",
                 torch_dtype="auto",
                 trust_remote_code=True,
                 local_files_only=True,
@@ -156,12 +158,11 @@ class BaseMLLM:
 
             location_per_directions, past_explanations = preprocess_descriptions(self.locations, rotation, lat, lng, max_distance)
             #####ここまでは全部のモデルで共通してるからclassの外に出してもいいかも
-            self.prompt = construct_prompt_for_image_description_sara2_woi(sentence_length=sentence_length,
+            self.prompt = construct_prompt_for_image_description(sentence_length=sentence_length,
                                                 front=location_per_directions["front"]["description"],
                                                 right=location_per_directions["right"]["description"],
                                                 left=location_per_directions["left"]["description"],
                                                 past_explanations=past_explanations,
-                                                image_tags=tags,
                                                 lang=lang,
                                                 )
             message = [{"role": "user", "content": self.prompt}]
@@ -204,7 +205,7 @@ class BaseMLLM:
 
             location_per_directions, past_explanations = preprocess_descriptions(locations, rotation, lat, lng, max_distance)
             ####ここまでsarashina2-vision-8bと共通してるからclassの外に出してもいいかも
-            prompt = construct_prompt_for_image_description_gpt(sentence_length=sentence_length,
+            prompt = construct_prompt_for_image_description(sentence_length=sentence_length,
                                                             front=location_per_directions["front"]["description"],
                                                             right=location_per_directions["right"]["description"],
                                                             left=location_per_directions["left"]["description"],
@@ -245,7 +246,7 @@ def read_description_by_lat_lng(lat: float = Query(...),
     logger.info("no live image")
     base_mllm = BaseMLLM()
 
-    output_text, prompt, elapsed_time, locations, model_path = base_mllm.sara2_woi(lat, lng, floor, rotation, max_distance, max_count, sentence_length, tags="", lang=lang)
+    output_text, prompt, elapsed_time, locations, model_path = base_mllm.sara2_woi(lat, lng, floor, rotation, max_distance, max_count, sentence_length, lang=lang)
     logger.info("Time taken: %s", elapsed_time)
     logger.info("model_path: %s", model_path)
     logger.info("Generated description: %s", output_text[0])
