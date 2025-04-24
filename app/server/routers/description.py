@@ -144,17 +144,16 @@ class BaseMLLM:
             
         def sara2_woi(self, lat, lng, floor, rotation, max_distance, max_count, sentence_length, lang):
             st = time.time()        
-            self.model_path = "/mnt/arata/models/sarashina2-vision-8b"
-            self.processor = AutoProcessor.from_pretrained(self.model_path, trust_remote_code=True, local_files_only=True)
+            self.model_path = "sbintuitions/sarashina2-vision-8b"
+            self.processor = AutoProcessor.from_pretrained(self.model_path, trust_remote_code=True)
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_path,
-                device_map="auto",
+                device_map="cuda",
                 torch_dtype="auto",
                 trust_remote_code=True,
-                local_files_only=True,
             )
             #####ここから
-            self.locations = get_description_by_lat_lng(lat, lng, floor, max_distance, max_count)
+            self.locations = get_description_by_lat_lng(lat, lng, floor, max_distance, max_count=5)
 
             location_per_directions, past_explanations = preprocess_descriptions(self.locations, rotation, lat, lng, max_distance)
             #####ここまでは全部のモデルで共通してるからclassの外に出してもいいかも
@@ -179,7 +178,7 @@ class BaseMLLM:
             output_ids = self.model.generate(
             **inputs,
             max_new_tokens=128,
-            temperature=0.7,
+            temperature=0.6,
             do_sample=True,
             stopping_criteria=stopping_criteria,
             )
@@ -190,6 +189,9 @@ class BaseMLLM:
             generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True
             )
             elapsed_time = time.time() - st
+
+            logger.info("Time taken: %s", elapsed_time)
+            logger.info("Generated description: %s", output_text[0])
             return output_text[0], self.prompt, elapsed_time, self.locations, self.model_path        
         ###
         #def sara2(self, lat, lng, floor, rotation, max_distance, max_count, sentence_length, tags, lang):
@@ -221,8 +223,6 @@ class BaseMLLM:
             lang = parsed_value(original_result, "lang")
             # log
             date = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d-%H-%M-%S")
-            
-
             if hasattr(original_result, "error"):
                 raise HTTPException(status_code=400, detail=original_result.error)
             
@@ -235,23 +235,32 @@ class BaseMLLM:
 
 @router.get('/description', dependencies=[Depends(verify_api_key_or_cookie)])
 def read_description_by_lat_lng(lat: float = Query(...),
-                                      lng: float = Query(...),
-                                      floor: int = Query(0),
-                                      rotation: float = Query(...),
-                                      max_count: Optional[int] = Query(10),
-                                      max_distance: Optional[float] = Query(100),
-                                      lang: Optional[str] = Query("ja"),
-                                      sentence_length: Optional[int] = Query(3),
-                                      ):
-    logger.info("no live image")
+                               lng: float = Query(...),
+                               floor: int = Query(0),
+                               rotation: float = Query(...),
+                               max_count: Optional[int] = Query(10),
+                               max_distance: Optional[float] = Query(100),
+                               lang: Optional[str] = Query("ja"),
+                               sentence_length: Optional[int] = Query(3),
+                               ):
+    logger.info(f"Handling description request: lat={lat}, lng={lng}, floor={floor}, rotation={rotation}")
     base_mllm = BaseMLLM()
 
-    output_text, prompt, elapsed_time, locations, model_path = base_mllm.sara2_woi(lat, lng, floor, rotation, max_distance, max_count, sentence_length, lang=lang)
-    logger.info("Time taken: %s", elapsed_time)
-    logger.info("model_path: %s", model_path)
-    logger.info("Generated description: %s", output_text[0])
-
-    # ログを記録
+    # モデル呼び出し
+    output_text, prompt, elapsed_time, locations, model_path = base_mllm.sara2_woi(
+        lat, lng, floor, rotation, max_distance, max_count, sentence_length, lang=lang
+    )
+    
+    logger.info(f"Model response: elapsed_time={elapsed_time:.2f}s, model={model_path}")
+    
+    # 出力の検証
+    if not output_text or output_text.startswith("エラー"):
+        logger.error(f"Model error: {output_text}")
+        output_text = "説明文の生成中にエラーが発生しました。"
+    else:
+        logger.info(f"Generated description: {output_text}")
+    
+    # ログ記録（変更なし）
     date = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d-%H-%M-%S")
     log_json(directory=date, name="params", data={
         "lat": lat,
@@ -261,22 +270,22 @@ def read_description_by_lat_lng(lat: float = Query(...),
         "max_distance": max_distance,
         "sentence_length": sentence_length,
         "prompt": prompt,
-        "lang": "ja",
+        "lang": lang,
         "time_taken": elapsed_time,
         "model_path": model_path,
     })
     
     # モデル出力をログに記録
     log_json(directory=date, name="locations", data=locations)
-    log_text(directory=date, name="model-output", data=output_text[0])
+    log_text(directory=date, name="model-output", data=output_text)
     log_text(directory=date, name="prompt", data=prompt)
-
-
+    
+    # フロントエンド用のレスポンス形式を確認
     return {
         'locations': locations,
         'elapsed_time': elapsed_time,
-        'description': output_text[0],
-        'lang': "ja",
+        'description': output_text,  # output_text[0] ではなく output_text に
+        'lang': lang,
         'model': model_path,
     }
 
