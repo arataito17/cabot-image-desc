@@ -132,8 +132,108 @@ def parsed_value(result, key):
         return f"Error: No {key}"
 
 
+class BaseMLLM:
+        def __init__(self):
+            pass
+            
+        def __call__(self):
+            print("NO MODEL\n")
+            print("please select a model")
+            return None
+            
+        def sara2_woi(self, lat, lng, floor, rotation, max_distance, max_count, sentence_length, tags, lang):
+            self.model_path = "/mnt/arata/models/sarashina2-vision-8b"
+            self.processor = AutoProcessor.from_pretrained(self.model_path, trust_remote_code=True, local_files_only=True)
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_path,
+                device_map="cuda",
+                torch_dtype="auto",
+                trust_remote_code=True,
+                local_files_only=True,
+            )
+            #####ここから
+            self.locations = get_description_by_lat_lng(lat, lng, floor, max_distance, max_count)
+
+            location_per_directions, past_explanations = preprocess_descriptions(self.locations, rotation, lat, lng, max_distance)
+            #####ここまでは全部のモデルで共通してるからclassの外に出してもいいかも
+            self.prompt = construct_prompt_for_image_description_sara2_woi(sentence_length=sentence_length,
+                                                front=location_per_directions["front"]["description"],
+                                                right=location_per_directions["right"]["description"],
+                                                left=location_per_directions["left"]["description"],
+                                                past_explanations=past_explanations,
+                                                image_tags=tags,
+                                                lang=lang,
+                                                )
+            message = [{"role": "user", "content": self.prompt}]
+            text_prompt = self.processor.apply_chat_template(message, add_generation_prompt=True)
+            inputs = self.processor(
+            text=[text_prompt],
+            padding=True,
+            return_tensors="pt",
+            )
+            inputs = inputs.to("cuda")
+            stopping_criteria = self.processor.get_stopping_criteria(["\n###"])
+            
+            # Inference: Generation of the output
+            output_ids = self.model.generate(
+            **inputs,
+            max_new_tokens=128,
+            temperature=0.7,
+            do_sample=True,
+            stopping_criteria=stopping_criteria,
+            )
+            generated_ids = [
+            output_ids[len(input_ids) :] for input_ids, output_ids in zip(inputs.input_ids, output_ids)
+            ]
+            output_text = self.processor.batch_decode(
+            generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True
+            )
+            elapsed_time = time.time() - st
+            return output_text[0], self.prompt, elapsed_time, self.locations, self.model_path        
+        ###
+        #def sara2(self, lat, lng, floor, rotation, max_distance, max_count, sentence_length, tags, lang):
+                
+
+        
+             
+
+        async def gpt4o(self, lat, lng, floor,rotation, max_distance, max_count, sentence_length, tags, lang):
+            ####ここから
+            logger.info("description get")
+            locations = get_description_by_lat_lng(lat, lng, floor, max_distance, max_count)
+
+            location_per_directions, past_explanations = preprocess_descriptions(locations, rotation, lat, lng, max_distance)
+            ####ここまでsarashina2-vision-8bと共通してるからclassの外に出してもいいかも
+            prompt = construct_prompt_for_image_description_gpt(sentence_length=sentence_length,
+                                                            front=location_per_directions["front"]["description"],
+                                                            right=location_per_directions["right"]["description"],
+                                                            left=location_per_directions["left"]["description"],
+                                                            past_explanations=past_explanations,
+                                                            lang=lang,
+                                                            )
+
+            st = time.time()
+            (original_result, query) = await gpt_agent.query_with_images(prompt=prompt, response_format=TranslatedDescription)
+            elapsed_time = time.time() - st
+            description = parsed_value(original_result, "description")
+            translated = parsed_value(original_result, "translated")
+            lang = parsed_value(original_result, "lang")
+            # log
+            date = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d-%H-%M-%S")
+            
+
+            if hasattr(original_result, "error"):
+                raise HTTPException(status_code=400, detail=original_result.error)
+            
+            return description, translated, lang, query, date, locations, self.model_path, self.processor, self.model, elapsed_time, lang
+
+
+
+
+
+
 @router.get('/description', dependencies=[Depends(verify_api_key_or_cookie)])
-async def read_description_by_lat_lng(lat: float = Query(...),
+def read_description_by_lat_lng(lat: float = Query(...),
                                       lng: float = Query(...),
                                       floor: int = Query(0),
                                       rotation: float = Query(...),
@@ -143,31 +243,14 @@ async def read_description_by_lat_lng(lat: float = Query(...),
                                       sentence_length: Optional[int] = Query(3),
                                       ):
     logger.info("no live image")
-    logger.info("description get")
-    locations = get_description_by_lat_lng(lat, lng, floor, max_distance, max_count)
+    base_mllm = BaseMLLM()
 
-    location_per_directions, past_explanations = preprocess_descriptions(locations, rotation, lat, lng, max_distance)
-
-    prompt = construct_prompt_for_image_description(sentence_length=sentence_length,
-                                                    front=location_per_directions["front"]["description"],
-                                                    right=location_per_directions["right"]["description"],
-                                                    left=location_per_directions["left"]["description"],
-                                                    past_explanations=past_explanations,
-                                                    lang=lang,
-                                                    )
-
-    st = time.time()
-    (original_result, query) = await gpt_agent.query_with_images(prompt=prompt, response_format=TranslatedDescription)
-    elapsed_time = time.time() - st
-    description = parsed_value(original_result, "description")
-    translated = parsed_value(original_result, "translated")
-    lang = parsed_value(original_result, "lang")
+    output_text, prompt, elapsed_time, locations, model_path = base_mllm.sara2_woi(lat, lng, floor, rotation, max_distance, max_count, sentence_length, tags="", lang=lang)
     logger.info("Time taken: %s", elapsed_time)
-    logger.info("Generated description: %s", description)
-    logger.info("Translated description: %s", translated)
-    logger.info("Language: %s", lang)
+    logger.info("model_path: %s", model_path)
+    logger.info("Generated description: %s", output_text[0])
 
-    # log
+    # ログを記録
     date = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d-%H-%M-%S")
     log_json(directory=date, name="params", data={
         "lat": lat,
@@ -177,24 +260,24 @@ async def read_description_by_lat_lng(lat: float = Query(...),
         "max_distance": max_distance,
         "sentence_length": sentence_length,
         "prompt": prompt,
-        "lang": lang,
+        "lang": "ja",
+        "time_taken": elapsed_time,
+        "model_path": model_path,
     })
-    log_json(directory=date, name="openai-query", data=query)
-    log_json(directory=date, name="openai-prompt", data=prompt)
+    
+    # モデル出力をログに記録
     log_json(directory=date, name="locations", data=locations)
-    log_json(directory=date, name="openai-response", data=json.loads(original_result.model_dump_json()))
+    log_text(directory=date, name="model-output", data=output_text[0])
+    log_text(directory=date, name="prompt", data=prompt)
 
-    if hasattr(original_result, "error"):
-        raise HTTPException(status_code=400, detail=original_result.error)
 
     return {
         'locations': locations,
         'elapsed_time': elapsed_time,
-        'description': description,
-        'translated': translated,
-        'lang': lang,
+        'description': output_text[0],
+        'lang': "ja",
+        'model': model_path,
     }
-
 
 # TODO: upload a live image and describe the image, using nearby data
 @router.post('/description_with_live_image', dependencies=[Depends(verify_api_key_or_cookie)])
