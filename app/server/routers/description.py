@@ -178,7 +178,7 @@ class BaseMLLM:
             output_ids = self.model.generate(
             **inputs,
             max_new_tokens=128,
-            temperature=0.6,
+            temperature=0.9,
             do_sample=True,
             stopping_criteria=stopping_criteria,
             )

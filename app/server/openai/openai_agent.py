@@ -38,14 +38,14 @@ class TranslatedDescription(BaseModel):
         return self.model_dump()
 
 DESCRIPTION_PROMPT_TEMPLATE =  """
-以下の情報を要約し，前，右，左には何があるのかを説明してください。
+以下を250字以内(重要)で要約し周囲に何があるかを説明してください。
 {front}
 {right}
 {left}
 """
 
 DESCRIPTION_PROMPT_TEMPLATE_wi =  """
-以下の情報を要約し，周囲の説明を250字以内(重要)で説明してください。
+以下の情報を要約し，周囲の説明を250字以内，語り口調(重要)で説明してください。
 {画像情報}
 {front}
 {right}
