@@ -1,0 +1,3 @@
+[submodule "models/sarashina2-vision-8b"]
+	path = models/sarashina2-vision-8b
+	url = https://github.com/sbintuitions/sarashina2-vision-8b

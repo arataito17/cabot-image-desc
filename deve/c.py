@@ -34,6 +34,8 @@ from ..openai.openai_agent import TranslatedDescription, construct_prompt_for_im
 from ..openai.openai_agent import StopReason, construct_prompt_for_stop_reason
 from .auth import verify_api_key_or_cookie
 from ..db import get_description_by_lat_lng
+from transformers import AutoModelForCausalLM, AutoProcessor
+
 
 router = APIRouter()
 gpt_agent = GPTAgent()
@@ -92,7 +94,8 @@ def preprocess_descriptions(locations, rotation, lat, lng, max_distance):
         elif "highpriority" in tag:
             location["description"] = "【重要！】" + location["description"]
         elif "poi" in tag:
-            location["description"] = "これはこの方向にある施設・設備に関する追加の説明文章です。" + location["description"]
+            #location["description"] = "これはこの方向にある施設・設備に関する追加の説明文章です。" + location["description"]
+            location["description"] = location["description"]
         direction = location['direction']
         location['relative_direction'] = getOrientation(rotation, direction)
         loc_lat = location['location']['coordinates'][1]
@@ -132,8 +135,9 @@ def parsed_value(result, key):
         return f"Error: No {key}"
 
 
+
 @router.get('/description', dependencies=[Depends(verify_api_key_or_cookie)])
-async def read_description_by_lat_lng(lat: float = Query(...),
+def read_description_by_lat_lng(lat: float = Query(...),
                                       lng: float = Query(...),
                                       floor: int = Query(0),
                                       rotation: float = Query(...),
@@ -144,10 +148,11 @@ async def read_description_by_lat_lng(lat: float = Query(...),
                                       ):
     logger.info("no live image")
     logger.info("description get")
+    #近くの地点を取得
     locations = get_description_by_lat_lng(lat, lng, floor, max_distance, max_count)
-
-    location_per_directions, past_explanations = preprocess_descriptions(locations, rotation, lat, lng, max_distance)
-
+    #地点を方向で振り分け
+    location_per_directions, past_explanations = preprocess_descriptions(locations, rotation, lat, lng, max_distance=5)
+    #振り分けた方向ごとの地点の情報をプロンプトに組みこむ
     prompt = construct_prompt_for_image_description(sentence_length=sentence_length,
                                                     front=location_per_directions["front"]["description"],
                                                     right=location_per_directions["right"]["description"],
@@ -155,19 +160,46 @@ async def read_description_by_lat_lng(lat: float = Query(...),
                                                     past_explanations=past_explanations,
                                                     lang=lang,
                                                     )
-
-    st = time.time()
-    (original_result, query) = await gpt_agent.query_with_images(prompt=prompt, response_format=TranslatedDescription)
+    logger.info("prompt: %s", prompt)
+    #プロンプトをもとに画像の説明を生成
+    #モデルの指定
+    model_path = "sbintuitions/sarashina2-vision-8b"
+    #モデルの読み込み
+    processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(
+    model_path,
+    device_map="cuda",
+    torch_dtype="auto",
+    trust_remote_code=True,
+    )
+    st= time.time()
+    message = [{"role": "user", "content": prompt}]
+    text_prompt = processor.apply_chat_template(message, add_generation_prompt=True)
+    inputs = processor(
+    text=[text_prompt],
+    padding=True,
+    return_tensors="pt",
+    )
+    inputs = inputs.to("cuda")
+    stopping_criteria = processor.get_stopping_criteria(["\n###"])
+    # Inference: Generation of the output
+    output_ids = model.generate(
+    **inputs,
+    max_new_tokens=128,
+    temperature=0.0,
+    do_sample=False,
+    stopping_criteria=stopping_criteria,
+    )
+    generated_ids = [
+    output_ids[len(input_ids) :] for input_ids, output_ids in zip(inputs.input_ids, output_ids)
+    ]
+    output_text = processor.batch_decode(
+    generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True
+    )
     elapsed_time = time.time() - st
-    description = parsed_value(original_result, "description")
-    translated = parsed_value(original_result, "translated")
-    lang = parsed_value(original_result, "lang")
     logger.info("Time taken: %s", elapsed_time)
-    logger.info("Generated description: %s", description)
-    logger.info("Translated description: %s", translated)
-    logger.info("Language: %s", lang)
-
-    # log
+    logger.info("Generated description: %s", output_text[0])
+    # ログを記録
     date = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d-%H-%M-%S")
     log_json(directory=date, name="params", data={
         "lat": lat,
@@ -177,22 +209,21 @@ async def read_description_by_lat_lng(lat: float = Query(...),
         "max_distance": max_distance,
         "sentence_length": sentence_length,
         "prompt": prompt,
-        "lang": lang,
+        "lang": "ja",
     })
-    log_json(directory=date, name="openai-query", data=query)
-    log_json(directory=date, name="openai-prompt", data=prompt)
+    
+    # モデル出力をログに記録
     log_json(directory=date, name="locations", data=locations)
-    log_json(directory=date, name="openai-response", data=json.loads(original_result.model_dump_json()))
+    log_text(directory=date, name="model-output", data=output_text[0])
+    log_text(directory=date, name="prompt", data=prompt)
 
-    if hasattr(original_result, "error"):
-        raise HTTPException(status_code=400, detail=original_result.error)
 
     return {
         'locations': locations,
         'elapsed_time': elapsed_time,
-        'description': description,
-        'translated': translated,
-        'lang': lang,
+        'description': output_text[0],
+        'lang': "ja",
+        'model': model_path,
     }
 
 
@@ -214,8 +245,8 @@ async def read_description_by_lat_lng_with_image(request: Request,
     if not use_live_image_only:
         logger.info("you won't use live image only")
         locations = get_description_by_lat_lng(lat, lng, floor, max_distance, max_count)
-        if not locations:
-            raise HTTPException(status_code=400, detail="No locations found")
+        #if not locations:
+            #raise HTTPException(status_code=400, detail="No locations found")
         logger.info("locations: %s", locations)
     else:
         logger.info("using live image only")
@@ -264,6 +295,7 @@ async def read_description_by_lat_lng_with_image(request: Request,
         "use_live_image_only": use_live_image_only,
         "prompt": prompt,
         "lang": lang,
+        "time_taken": elapsed_time,
     })
     log_json(directory=date, name="openai-query", data=query)
     log_json(directory=date, name="openai-prompt", data=prompt)

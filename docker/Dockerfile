@@ -2,6 +2,8 @@ FROM python:3.9
 
 COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install -U transformers==4.47.0 torch torchvision pillow protobuf sentencepiece accelerate
+
 
 COPY --from=src ./app /app
 COPY --from=src ./static /static

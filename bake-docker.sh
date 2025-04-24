@@ -43,7 +43,7 @@ platform=
 base_name=cabot-base
 service=image_desc
 local=0
-tags=
+=
 
 while getopts "hb:ilP:t:" arg; do
     case $arg in

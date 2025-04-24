@@ -37,8 +37,21 @@ class TranslatedDescription(BaseModel):
     def to_dict(self):
         return self.model_dump()
 
+DESCRIPTION_PROMPT_TEMPLATE =  """
+以下の情報を要約し，周囲の説明を250字以内(重要)で説明してください。
+{front}
+{right}
+{left}
+"""
 
-DESCRIPTION_PROMPT_TEMPLATE = """
+DESCRIPTION_PROMPT_TEMPLATE_wi =  """
+以下の情報を要約し，周囲の説明を250字以内(重要)で説明してください。
+{画像情報}
+{front}
+{right}
+{left}
+"""
+DESCRIPTION_PROMPT_TEMPLATE_original = """
 # 指示
 与えられた画像について説明してdescriptionにいれます。
 複数の画像は以下の向きに対応しています。

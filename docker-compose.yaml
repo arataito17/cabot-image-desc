@@ -30,7 +30,9 @@ services:
       - mongo
     networks:
       - image_desc_network
+    runtime: nvidia
     environment:
+      - NVIDIA_VISIBLE_DEVICES=1
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - "INITIAL_LOCATION=${INITIAL_LOCATION:-{\"lat\": 35.6241, \"lng\":139.7754}}"
       - API_KEY
@@ -50,6 +52,7 @@ services:
 
   image_desc-dev:
     extends: image_desc
+    runtime: nvidia
     volumes:
       - ./app:/app
       - ./logs:/logs

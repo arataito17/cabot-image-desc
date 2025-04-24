@@ -1,0 +1,2 @@
+*.{png,jpg,jpeg,gif,bmp,tiff} filter=lfs diff=lfs merge=lfs -text
+*.{large_file_extension} filter=lfs diff=lfs merge=lfs -text
