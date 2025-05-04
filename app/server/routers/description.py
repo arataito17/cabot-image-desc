@@ -177,8 +177,8 @@ class BaseMLLM:
             # Inference: Generation of the output
             output_ids = self.model.generate(
             **inputs,
-            max_new_tokens=128,
-            temperature=0.9,
+            max_new_tokens=1000,
+            temperature=0.7,
             do_sample=True,
             stopping_criteria=stopping_criteria,
             )
@@ -207,11 +207,12 @@ class BaseMLLM:
 
             location_per_directions, past_explanations = preprocess_descriptions(locations, rotation, lat, lng, max_distance)
             ####ここまでsarashina2-vision-8bと共通してるからclassの外に出してもいいかも
-            prompt = construct_prompt_for_image_description(sentence_length=sentence_length,
+            prompt = construct_prompt_for_image_description_original(sentence_length=sentence_length,
                                                             front=location_per_directions["front"]["description"],
                                                             right=location_per_directions["right"]["description"],
                                                             left=location_per_directions["left"]["description"],
                                                             past_explanations=past_explanations,
+                                                            image_tags=tags,
                                                             lang=lang,
                                                             )
 
@@ -247,7 +248,7 @@ def read_description_by_lat_lng(lat: float = Query(...),
     base_mllm = BaseMLLM()
 
     # モデル呼び出し
-    output_text, prompt, elapsed_time, locations, model_path = base_mllm.sara2_woi(
+    output_text, prompt, elapsed_time, locations, model_path = base_mllm.gpt4o(
         lat, lng, floor, rotation, max_distance, max_count, sentence_length, lang=lang
     )
     
@@ -392,15 +393,15 @@ async def stop_reason(request: Request,
 
     prompt = construct_prompt_for_stop_reason(lang=lang)
 
-    st = time.time()
+    
     (original_result, query) = await gpt_agent.query_with_images(prompt=prompt, images=temp, response_format=StopReason)
-    elapsed_time = time.time() - st
+
     description = parsed_value(original_result, "message")
     translated = parsed_value(original_result, "translated")
     lang = parsed_value(original_result, "lang")
     #queryを表示
     logger.info("Query: %s", query)
-    logger.info("Time taken: %s", elapsed_time)
+
     logger.info("Generated description: %s", description)
     logger.info("Translated description: %s", translated)
     logger.info("Language: %s", lang)
