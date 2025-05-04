@@ -200,19 +200,18 @@ class BaseMLLM:
         
              
 
-        async def gpt4o(self, lat, lng, floor,rotation, max_distance, max_count, sentence_length, tags, lang):
+        async def gpt4o(self, lat, lng, floor, rotation, max_distance, max_count, sentence_length, lang):
             ####ここから
             logger.info("description get")
             locations = get_description_by_lat_lng(lat, lng, floor, max_distance, max_count)
-
+            self.model_path = "gpt-4o"
             location_per_directions, past_explanations = preprocess_descriptions(locations, rotation, lat, lng, max_distance)
             ####ここまでsarashina2-vision-8bと共通してるからclassの外に出してもいいかも
-            prompt = construct_prompt_for_image_description_original(sentence_length=sentence_length,
+            prompt = construct_prompt_for_image_description(sentence_length=sentence_length,
                                                             front=location_per_directions["front"]["description"],
                                                             right=location_per_directions["right"]["description"],
                                                             left=location_per_directions["left"]["description"],
                                                             past_explanations=past_explanations,
-                                                            image_tags=tags,
                                                             lang=lang,
                                                             )
 
@@ -227,7 +226,7 @@ class BaseMLLM:
             if hasattr(original_result, "error"):
                 raise HTTPException(status_code=400, detail=original_result.error)
             
-            return description, translated, lang, query, date, locations, self.model_path, self.processor, self.model, elapsed_time, lang
+            return description, prompt, elapsed_time, locations, self.model_path, date 
 
 
 
@@ -235,24 +234,29 @@ class BaseMLLM:
 
 
 @router.get('/description', dependencies=[Depends(verify_api_key_or_cookie)])
-def read_description_by_lat_lng(lat: float = Query(...),
-                               lng: float = Query(...),
-                               floor: int = Query(0),
-                               rotation: float = Query(...),
-                               max_count: Optional[int] = Query(10),
-                               max_distance: Optional[float] = Query(100),
-                               lang: Optional[str] = Query("ja"),
-                               sentence_length: Optional[int] = Query(3),
-                               ):
+async def read_description_by_lat_lng(lat: float = Query(...),
+                                     lng: float = Query(...),
+                                     floor: int = Query(0),
+                                     rotation: float = Query(...),
+                                     max_count: Optional[int] = Query(10),
+                                     max_distance: Optional[float] = Query(100),
+                                     lang: Optional[str] = Query("ja"),
+                                     sentence_length: Optional[int] = Query(3),
+                                     ):
     logger.info(f"Handling description request: lat={lat}, lng={lng}, floor={floor}, rotation={rotation}")
     base_mllm = BaseMLLM()
 
-    # モデル呼び出し
-    output_text, prompt, elapsed_time, locations, model_path = base_mllm.gpt4o(
+    # モデル呼び出し（awaitを追加）
+    output_text, prompt, elapsed_time, locations, model_path, date = await base_mllm.gpt4o(
         lat, lng, floor, rotation, max_distance, max_count, sentence_length, lang=lang
     )
+
+    #output_text, prompt, elapsed_time, locations, model_path = base_mllm.sara2_woi(
+    #     lat, lng, floor, rotation, max_distance, max_count, sentence_length, lang=lang
+    # )
     
-    logger.info(f"Model response: elapsed_time={elapsed_time:.2f}s, model={model_path}")
+    # 以下は変更なし
+    logger.info(f"Model response: elapsed_time={elapsed_time:.2f}s, model={model_path}, date={date}")
     
     # 出力の検証
     if not output_text or output_text.startswith("エラー"):
@@ -261,7 +265,7 @@ def read_description_by_lat_lng(lat: float = Query(...),
     else:
         logger.info(f"Generated description: {output_text}")
     
-    # ログ記録（変更なし）
+    # ログ記録
     date = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d-%H-%M-%S")
     log_json(directory=date, name="params", data={
         "lat": lat,
@@ -274,6 +278,7 @@ def read_description_by_lat_lng(lat: float = Query(...),
         "lang": lang,
         "time_taken": elapsed_time,
         "model_path": model_path,
+        "date": date,
     })
     
     # モデル出力をログに記録

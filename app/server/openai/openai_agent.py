@@ -151,43 +151,8 @@ def construct_prompt_for_image_description(sentence_length=3,
     if left != "":
         left = left.replace("\n", " ")
 
-    prompt_template = DESCRIPTION_PROMPT_TEMPLATE
-
-    sentence_atmosphere = sentence_atmosphere_in_Japanese(sentence_length)
-    scene_desc_style = determine_scene_description_style(sentence_length, force_use_default_style=True)
-
-    prompt = prompt_template.format(front=front,
-                                    right=right,
-                                    left=left,
-                                    min_sentence_length=sentence_length,
-                                    max_sentence_length=sentence_length + 1,
-                                    image_tags=image_tags,
-                                    sentence_atmosphere=sentence_atmosphere,
-                                    scene_description_style=scene_desc_style,
-                                    lang=lang,
-                                    )
-
-    if USE_PAST_EXPLANATIONS and past_explanations:
-        prompt += PAST_EXPLANATIONS_TEMPLATE.format(past_explanations=past_explanations)
-
-    return prompt
-
-def construct_prompt_for_image_description_original(sentence_length=3,
-                                           front="",
-                                           right="",
-                                           left="",
-                                           past_explanations="",
-                                           image_tags="",
-                                           lang="ja",
-                                           ):
-    if front != "":
-        front = front.replace("\n", " ")
-    if right != "":
-        right = right.replace("\n", " ")
-    if left != "":
-        left = left.replace("\n", " ")
-
     prompt_template = DESCRIPTION_PROMPT_TEMPLATE_original
+    #prompt_template = DESCRIPTION_PROMPT_TEMPLATE
 
     sentence_atmosphere = sentence_atmosphere_in_Japanese(sentence_length)
     scene_desc_style = determine_scene_description_style(sentence_length, force_use_default_style=True)
@@ -207,6 +172,8 @@ def construct_prompt_for_image_description_original(sentence_length=3,
         prompt += PAST_EXPLANATIONS_TEMPLATE.format(past_explanations=past_explanations)
 
     return prompt
+
+
 
 
 class StopReason(BaseModel):
